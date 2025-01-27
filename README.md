@@ -1,3 +1,24 @@
+# Changes in This Fork Compared to [jzlianglu/pykaldi2](https://github.com/jzlianglu/pykaldi2)
+
+I needed to run the LibriCSS ASR system on enhanced data,
+but the original code required pykaldi for reading and
+writing Kaldi-style matrices.
+
+The problem with pykaldi is that it is not compatible
+with the [original](https://github.com/kaldi-asr/kaldi) Kaldi.
+Instead, it requires installing a separate [fork](https://github.com/pykaldi/kaldi),
+which can be annoying, if you have already a working `$KALDI_ROOT`.
+
+Since the `decode.py` script only needs matrix I/O operations
+from pykaldi, I created this fork that uses [kaldi_io](https://github.com/KarelVesely84/kaldi-io-for-python).
+
+## What’s Changed?
+ - Replaced pykaldi's I/O operations with kaldi_io, which is lightweight and can be installed easily via:
+```bash
+pip install kaldi_io
+```
+ - This removes the need to install the **kaldi fork**, making it easier to use the pretrained LibriCSS ASR system.
+
 # pykaldi2
 
 PyKaldi2 is a speech toolkit that is built based on [Kaldi](http://kaldi-asr.org/) and [PyTorch](https://pytorch.org/). It relies on [PyKaldi](https://github.com/pykaldi/pykaldi) - the Python wrapper of Kaldi, to access Kaldi functionalities. The key features of PyKaldi2 are one-the-fly lattice generation for lattice-based sequence training, on-the-fly data simulation and on-the-fly alignment gereation. A beta version lattice-free MMI (LFMMI) training script is also provided.  
