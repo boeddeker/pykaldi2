@@ -10,8 +10,27 @@ import pickle
 import torch as th
 import torch.nn as nn
 
-from kaldi.util.table import MatrixWriter
-from kaldi.util.io import read_matrix
+import kaldi_io
+import contextlib
+
+class _MatrixWriterCls:
+    def __init__(self, f):
+        self.f = f
+
+    def __setitem__(self, key, value):
+        if isinstance(value, th.Tensor):
+            value = value.cpu().numpy()
+        kaldi_io.write_mat(self.f, value, key=key)
+
+@contextlib.contextmanager
+def MatrixWriter(path):
+    with kaldi_io.open_or_fd(path, 'wb') as f:
+        yield _MatrixWriterCls(f)
+
+def read_matrix(path):
+    with kaldi_io.open_or_fd(path, 'rb') as f:
+        return th.tensor(kaldi_io.read_mat(f))
+
 
 from data import SpeechDataset, SeqDataloader
 from models.lstm_libcss import LSTMStack, NnetAM
@@ -19,18 +38,18 @@ from models.lstm_libcss import LSTMStack, NnetAM
 def main():
     """
     This script is mainly used for LibriCSS evaluation, which dump the loglikelihoods from the pretrain model
-    released in the LibriCSS repo: https://github.com/chenzhuo1011/libri_css 
+    released in the LibriCSS repo: https://github.com/chenzhuo1011/libri_css
     """
-    parser = argparse.ArgumentParser()                                                                                 
-    parser.add_argument("-config")                                                                                     
-    parser.add_argument("-model_path")                                                                                 
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-config")
+    parser.add_argument("-model_path")
     parser.add_argument("-data_path", default='', type=str, help="path of data files")
     parser.add_argument("-prior_path", default=None, help="the path to load the final.occs file")
     parser.add_argument("-transform", help="feature transformation matrix or mvn statistics")
-    parser.add_argument("-out_file", help="write out the log-probs to this file") 
-    parser.add_argument("-batch_size", default=32, type=int, help="Override the batch size in the config")             
+    parser.add_argument("-out_file", help="write out the log-probs to this file")
+    parser.add_argument("-batch_size", default=32, type=int, help="Override the batch size in the config")
     parser.add_argument("-sweep_size", default=200, type=float, help="process n hours of data per sweep (default:60)")
-    parser.add_argument("-frame_subsampling_factor", default=1, type=int, help="the factor to subsample the features") 
+    parser.add_argument("-frame_subsampling_factor", default=1, type=int, help="the factor to subsample the features")
     parser.add_argument("-data_loader_threads", default=4, type=int, help="number of workers for data loading")
     parser.add_argument("-gpuid", default=0, type=int, help="GPU ID")
 
@@ -60,8 +79,8 @@ def main():
             transform = pickle.load(f)
             dataset.transform = transform
 
-    test_dataloader = SeqDataloader(dataset, 
-                                    batch_size=args.batch_size, 
+    test_dataloader = SeqDataloader(dataset,
+                                    batch_size=args.batch_size,
                                     test_only=True)
 
     print("Data loader set up successfully!")
@@ -78,7 +97,7 @@ def main():
 
     assert os.path.isfile(args.model_path), "ERROR: model file {} does not exit!".format(args.model_path)
 
-    checkpoint = th.load(args.model_path, map_location='cuda:0')                                            
+    checkpoint = th.load(args.model_path, map_location='cuda:0')
     state_dict = checkpoint['model']
     from collections import OrderedDict
     new_state_dict = OrderedDict()
@@ -87,13 +106,13 @@ def main():
         name = k[7:] # remove 'module.' of dataparallel
         new_state_dict[name]=v
     if header == "module.":
-        model.load_state_dict(new_state_dict) 
+        model.load_state_dict(new_state_dict)
     else:
         model.load_state_dict(state_dict)
-    print("=> loaded checkpoint '{}' ".format(args.model_path))                      
+    print("=> loaded checkpoint '{}' ".format(args.model_path))
 
     log_prior = None
-    if(args.prior_path): 
+    if(args.prior_path):
         prior = read_matrix(args.prior_path).numpy()
         log_prior = th.tensor(np.log(prior[0]/np.sum(prior[0])), dtype=th.float)
 
@@ -104,7 +123,7 @@ def main():
                 feat = data["x"]
                 num_frs = data["num_frs"]
                 utt_ids = data["utt_ids"]
- 
+
                 x = feat.to(th.float32)
                 if(args.frame_subsampling_factor > 1):
                     x = x.unfold(1, 1, args.frame_subsampling_factor).squeeze(-1)
@@ -112,16 +131,16 @@ def main():
 
                 x = x.cuda()
                 prediction = model(x)
-                # save only unpadded part for each utt in batch                                         
-                for j in range(len(num_frs)):                                                            
-                    loglikes=prediction[j,:,:].data.cpu()                                                      
+                # save only unpadded part for each utt in batch
+                for j in range(len(num_frs)):
+                    loglikes=prediction[j,:,:].data.cpu()
                     loglikes_j = loglikes[:num_frs[j],:]
                     if(log_prior is not None):
-                        loglikes_j = loglikes_j - log_prior                                                   
-                                                                                         
+                        loglikes_j = loglikes_j - log_prior
+
                     llout[utt_ids[j][0]] = loglikes_j
 
                 print("Process batch [{}/{}]".format(i+1, len(test_dataloader)))
-            
+
 if __name__ == '__main__':
     main()
